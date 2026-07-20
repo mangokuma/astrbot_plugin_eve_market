@@ -18,23 +18,27 @@ def _format_start_time(iso_time: Optional[str]) -> str:
 
 
 def format_server_status(statuses: List[ServerStatus]) -> str:
-    """格式化三服状态查询结果（紧凑版，避免被转为转发样式）"""
-    lines = ["📡 EVE 服务器状态"]
+    """格式化三服状态查询结果"""
+    lines = ["📡 EVE 服务器状态", "─" * 30]
 
     for status in statuses:
+        # VIP 标识：ESI 返回 vip=true 时显示
+        vip_badge = " 💎VIP" if status.vip else ""
+
         if status.is_online:
-            # VIP 标识：ESI 返回 vip=true 时显示
-            vip_badge = " 💎VIP" if status.vip else ""
-            lines.append(
-                f"🟢 {status.server_name}{vip_badge}：在线 | "
-                f"👥{status.players:,} | "
-                f"启动于 {_format_start_time(status.start_time)}"
-            )
-            if status.server_version:
-                lines.append(f"   版本 {status.server_version}")
+            icon = "🟢"
+            state_text = "在线"
         else:
-            vip_badge = " 💎VIP" if status.vip else ""
-            lines.append(f"🔴 {status.server_name}{vip_badge}：离线")
+            icon = "🔴"
+            state_text = "离线"
+
+        lines.append(f"{icon} {status.server_name}{vip_badge}：{state_text}")
+        if status.is_online:
+            lines.append(f"   👥 在线人数：{status.players:,}")
+            lines.append(f"   🕐 启动时间：{_format_start_time(status.start_time)}")
+            if status.server_version:
+                lines.append(f"   📦 版本：{status.server_version}")
+        lines.append("")
 
     return "\n".join(lines)
 
