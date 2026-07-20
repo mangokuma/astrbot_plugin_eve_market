@@ -11,10 +11,12 @@ from .data.db import Database
 from .data.item_manager import ItemManager
 from .data.alias_manager import AliasManager
 from .data.image_manager import ImageManager
+from .data.group_manager import GroupManager
 from .commands.server_status import ServerStatusCommand
 from .commands.price_query import PriceQueryCommand
 from .commands.alias_cmd import AliasCommand
 from .commands.map_cmd import MapCommand
+from .commands.group_cmd import GroupCommand
 from .utils.constants import DEFAULT_AUTO_UPDATE_INTERVAL
 
 
@@ -51,12 +53,14 @@ class EVEMarketPlugin(Star):
             auto_update_interval=self.auto_update_interval
         )
         self.alias_manager = AliasManager(self.db)
+        self.group_manager = GroupManager(self.db)
         self.image_manager = ImageManager(cache_dir=image_cache_dir)
 
         # 初始化指令层
         self.server_status_cmd = ServerStatusCommand()
-        self.price_query_cmd = PriceQueryCommand(self.item_manager, self.alias_manager)
+        self.price_query_cmd = PriceQueryCommand(self.item_manager, self.alias_manager, self.group_manager)
         self.alias_cmd = AliasCommand(self.alias_manager)
+        self.group_cmd = GroupCommand(self.group_manager)
         self.map_cmd = MapCommand(self.image_manager)
 
         # 后台任务
@@ -187,6 +191,13 @@ class EVEMarketPlugin(Star):
         """物品别名管理"""
         args = self._extract_args(event, "简称")
         result = await self.alias_cmd.handle(args)
+        yield event.plain_result(result)
+
+    @filter.command("物品组")
+    async def cmd_group(self, event: AstrMessageEvent):
+        """物品组管理"""
+        args = self._extract_args(event, "物品组")
+        result = await self.group_cmd.handle(args)
         yield event.plain_result(result)
 
     # ==================== 地图指令 ====================
