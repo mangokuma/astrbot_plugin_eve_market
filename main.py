@@ -1,6 +1,7 @@
 """EVE Market 插件主入口（适配 AstrBot v4.x 新 API）"""
 
 import asyncio
+import re
 
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
@@ -118,13 +119,19 @@ class EVEMarketPlugin(Star):
 
     # ==================== 工具方法 ====================
 
-    @staticmethod
-    def _extract_args(event: AstrMessageEvent, cmd: str) -> str:
+    # 适配器可能附加的尾部标记，如 " [MSG_ID:1462389253]"
+    _MSG_TAIL_RE = re.compile(r"\s*\[MSG_ID:\d+\]\s*$")
+
+    @classmethod
+    def _extract_args(cls, event: AstrMessageEvent, cmd: str) -> str:
         """从消息中提取指令参数
 
-        message_str 形如 "nj 三钛合金"（不含指令前缀），去掉首个指令词
+        message_str 形如 "nj 三钛合金"（不含指令前缀），去掉首个指令词，
+        并剥离适配器附加的 [MSG_ID:xxx] 等尾部标记
         """
         text = (event.message_str or "").strip()
+        # 剥离 [MSG_ID:xxx] 尾部标记（引用消息时由适配器附加）
+        text = cls._MSG_TAIL_RE.sub("", text).strip()
         parts = text.split(maxsplit=1)
         if not parts:
             return ""
