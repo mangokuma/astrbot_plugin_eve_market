@@ -4,7 +4,7 @@ import asyncio
 import re
 
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star
+from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
 
 from .data.db import Database
@@ -38,8 +38,11 @@ class EVEMarketPlugin(Star):
             DEFAULT_AUTO_UPDATE_INTERVAL
         )
 
-        # 配置项：数据库路径
-        db_path = self.config.get("db_path", "./data/eve_items.db")
+        # 插件数据目录：AstrBot data/plugin_data/eve_market
+        # 数据库与图片缓存统一存放于此，可通过 config 覆盖数据库路径
+        self.plugin_data_dir = StarTools.get_data_dir("eve_market")
+        db_path = self.config.get("db_path") or str(self.plugin_data_dir / "eve_items.db")
+        image_cache_dir = str(self.plugin_data_dir / "images")
 
         # 初始化数据层
         self.db = Database(db_path=db_path)
@@ -48,7 +51,7 @@ class EVEMarketPlugin(Star):
             auto_update_interval=self.auto_update_interval
         )
         self.alias_manager = AliasManager(self.db)
-        self.image_manager = ImageManager()
+        self.image_manager = ImageManager(cache_dir=image_cache_dir)
 
         # 初始化指令层
         self.server_status_cmd = ServerStatusCommand()
