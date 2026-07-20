@@ -43,32 +43,113 @@ def format_server_status(statuses: List[ServerStatus]) -> str:
     return "\n".join(lines)
 
 
+def _price_line(name: str, price: Optional[PriceInfo]) -> str:
+    """单个物品的一行价格：📥 最高收单 / 📤 最低卖单"""
+    if price is None:
+        return f"• {name}：查询失败"
+    buy_max = format_isk(price.buy_max) if price.buy_max is not None else "无订单"
+    sell_min = format_isk(price.sell_min) if price.sell_min is not None else "无订单"
+    return f"• {name}：📥{buy_max} / 📤{sell_min}"
+
+
 def format_price_result(prices: List[PriceInfo], item_name: str) -> str:
-    """格式化价格查询结果"""
+    """格式化单个物品价格查询结果（只展示最高收单与最低卖单）"""
     if not prices:
         return f"❌ 未找到物品「{item_name}」的价格信息"
 
     price = prices[0]
-    server_name = price.server_name
 
     # 无订单时显示"无订单"
     buy_max = format_isk(price.buy_max) if price.buy_max is not None else "无订单"
     sell_min = format_isk(price.sell_min) if price.sell_min is not None else "无订单"
 
     lines = [
-        f"💰 {server_name} — {item_name}",
+        f"💰 {price.server_name} — {item_name}",
         "─" * 30,
-        f"📥 最高收单：{buy_max:>15}",
-        f"📤 最低卖单：{sell_min:>15}",
+        f"📥 最高收单：{buy_max}",
+        f"📤 最低卖单：{sell_min}",
     ]
 
-    if price.volume is not None:
-        lines.append(f"📊 日成交量：{price.volume:>15,}")
+    return "\n".join(lines)
+
+
+def format_multi_price_results(entries: List[tuple], keyword: str, server_name: str) -> str:
+    """格式化多个物品的价格列表（模糊搜索多结果）
+
+    Args:
+        entries: [(Item, Optional[PriceInfo]), ...]
+        keyword: 搜索关键词
+        server_name: 服务器名称
+    """
+    lines = [
+        f"🔍 「{keyword}」匹配到 {len(entries)} 个物品（{server_name}）：",
+        "─" * 30,
+    ]
+
+    for item, price in entries:
+        lines.append(_price_line(item.name, price))
 
     lines.append("")
-    lines.append("💡 提示：价格数据来自 CEVE Market，可能存在延迟")
+    lines.append("💡 可使用别名简化查询：")
+    lines.append(f'   简称 add <别名> "{entries[0][0].name}"')
+    lines.append("💡 或将同前缀物品设为物品组：")
+    lines.append("   物品组 add <组名> <名称前缀>")
 
     return "\n".join(lines)
+
+
+def format_group_price_result(group_name: str, prefix: str, entries: List[tuple], server_name: str) -> str:
+    """格式化物品组价格列表
+
+    Args:
+        group_name: 组名
+        prefix: 名称前缀
+        entries: [(Item, Optional[PriceInfo]), ...]
+        server_name: 服务器名称
+    """
+    lines = [
+        f"📦 物品组「{group_name}」（{server_name}，前缀：{prefix}）",
+        "─" * 30,
+    ]
+
+    for item, price in entries:
+        lines.append(_price_line(item.name, price))
+
+    return "\n".join(lines)
+
+
+def format_group_list(groups) -> str:
+    """格式化物品组列表"""
+    if not groups:
+        return "📭 暂无自定义物品组"
+
+    lines = [
+        f"📋 共 {len(groups)} 个物品组：",
+        "─" * 30,
+    ]
+
+    for g in groups:
+        lines.append(f"• {g.group_name}（前缀：{g.prefix}）")
+
+    lines.append("")
+    lines.append("💡 使用「物品组 del <组名>」删除物品组")
+
+    return "\n".join(lines)
+
+
+def format_group_added(group_name: str, prefix: str) -> str:
+    """格式化添加物品组成功消息"""
+    return (
+        f"✅ 物品组添加成功！\n"
+        f"   {group_name}（前缀：{prefix}）\n"
+        f"\n"
+        f"💡 现在可以使用「nj {group_name}」查看组内所有物品价格"
+    )
+
+
+def format_group_removed(group_name: str) -> str:
+    """格式化删除物品组成功消息"""
+    return f"✅ 物品组「{group_name}」已删除"
 
 
 def format_item_candidates(items: List[Item], keyword: str) -> str:
