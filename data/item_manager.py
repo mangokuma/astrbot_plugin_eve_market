@@ -100,6 +100,10 @@ class ItemManager:
         """
         return self.db.search_items(keyword, fuzzy=fuzzy, max_results=max_results)
 
+    def get_items_by_prefix(self, prefix: str, max_results: int = 20) -> List[Item]:
+        """按名称前缀获取物品（供物品组展开使用）"""
+        return self.db.get_items_by_prefix(prefix, max_results=max_results)
+
     def get_item_count(self) -> int:
         """获取物品总数"""
         return self.db.get_item_count()

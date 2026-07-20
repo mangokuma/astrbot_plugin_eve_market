@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from .models import Item, Alias
+from .models import Item, Alias, ItemGroup
 from ..utils.constants import DEFAULT_MAX_RESULTS, FUZZY_PATTERNS, DEFAULT_FUZZY_PATTERN, DEFAULT_MIN_CONFIDENCE
 
 
@@ -91,6 +91,16 @@ class Database:
             """)
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_aliases_name ON aliases(alias_name)
+            """)
+
+            # 物品组表（独立存储）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS item_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    prefix TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
             """)
 
             # 元数据表
@@ -308,3 +318,95 @@ class Database:
     def alias_exists(self, alias_name: str) -> bool:
         """检查别名是否存在"""
         return self.get_alias(alias_name) is not None
+
+    # ==================== 物品组操作 ====================
+
+    def get_items_by_prefix(self, prefix: str, max_results: int = 20) -> List[Item]:
+        """按名称前缀获取物品（用于物品组展开）"""
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT type_id, name, group_id, category_id, market_group_id, volume, mass
+                FROM items
+                WHERE name COLLATE NOCASE LIKE ?
+                ORDER BY name
+                LIMIT ?
+                """,
+                (f"{prefix}%", max_results)
+            )
+            rows = cursor.fetchall()
+            return [Item(**dict(row)) for row in rows]
+
+    def add_group(self, group_name: str, prefix: str) -> bool:
+        """添加物品组"""
+        try:
+            with self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO item_groups (group_name, prefix)
+                    VALUES (?, ?)
+                    """,
+                    (group_name, prefix)
+                )
+                conn.commit()
+                return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def remove_group(self, group_name: str) -> bool:
+        """删除物品组"""
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM item_groups WHERE group_name COLLATE NOCASE = ?",
+                (group_name,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_group(self, group_name: str) -> Optional[ItemGroup]:
+        """精确匹配物品组名"""
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, group_name, prefix, created_at
+                FROM item_groups
+                WHERE group_name COLLATE NOCASE = ?
+                LIMIT 1
+                """,
+                (group_name,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return ItemGroup(
+                id=row["id"],
+                group_name=row["group_name"],
+                prefix=row["prefix"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+
+    def list_groups(self) -> List[ItemGroup]:
+        """列出所有物品组"""
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, group_name, prefix, created_at
+                FROM item_groups
+                ORDER BY group_name
+                """
+            )
+            rows = cursor.fetchall()
+            return [
+                ItemGroup(
+                    id=row["id"],
+                    group_name=row["group_name"],
+                    prefix=row["prefix"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                for row in rows
+            ]
