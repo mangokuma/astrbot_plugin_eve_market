@@ -35,23 +35,33 @@ class ItemManager:
                     data = await response.read()
 
             # 解析 xlsx
-            df = pd.read_excel(io.BytesIO(data), engine="openpyxl")
+            # 实际结构（ceve-market evedata.xlsx）：
+            #   sheet「物品列表」，列：typeID / 物品名称 / 描述 / 第一~第七市场分类
+            # 兼容英文列名（type_id / name）以防格式变更
+            df = pd.read_excel(
+                io.BytesIO(data),
+                sheet_name="物品列表",
+                engine="openpyxl",
+            )
 
-            # 映射列名（根据实际 xlsx 结构调整）
-            # 假设列名：type_id, name, group_id, category_id, market_group_id, volume, mass
+            # 列名映射：兼容中英文
+            col_map = {}
+            for col in df.columns:
+                cl = str(col).strip().lower()
+                if cl in ("typeid", "type_id"):
+                    col_map[col] = "type_id"
+                elif cl in ("物品名称", "name"):
+                    col_map[col] = "name"
+            df = df.rename(columns=col_map)
+
             items = []
             for _, row in df.iterrows():
                 try:
                     item = Item(
                         type_id=int(row.get("type_id", 0)),
                         name=str(row.get("name", "")).strip(),
-                        group_id=int(row.get("group_id")) if pd.notna(row.get("group_id")) else None,
-                        category_id=int(row.get("category_id")) if pd.notna(row.get("category_id")) else None,
-                        market_group_id=int(row.get("market_group_id")) if pd.notna(row.get("market_group_id")) else None,
-                        volume=float(row.get("volume")) if pd.notna(row.get("volume")) else None,
-                        mass=float(row.get("mass")) if pd.notna(row.get("mass")) else None,
                     )
-                    if item.type_id > 0 and item.name:
+                    if item.type_id > 0 and item.name and item.name.lower() != "nan":
                         items.append(item)
                 except (ValueError, TypeError):
                     continue
