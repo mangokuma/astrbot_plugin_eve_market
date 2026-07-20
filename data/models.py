@@ -47,3 +47,12 @@ class Alias:
     alias_name: str
     target_name: str
     created_at: datetime
+
+
+@dataclass
+class ItemGroup:
+    """物品组（按名称前缀聚合）"""
+    id: int
+    group_name: str
+    prefix: str
+    created_at: datetime
