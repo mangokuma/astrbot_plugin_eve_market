@@ -1,7 +1,9 @@
-"""EVE Market 插件主入口"""
+"""EVE Market 插件主入口（适配 AstrBot v4.x 新 API）"""
 
 import asyncio
-from astrbot.api.all import AstrBotMessage, CommandResult, Context, Star, filter
+
+from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.star import Context, Star
 from astrbot.api import logger
 
 from .data.db import Database
@@ -12,7 +14,7 @@ from .commands.server_status import ServerStatusCommand
 from .commands.price_query import PriceQueryCommand
 from .commands.alias_cmd import AliasCommand
 from .commands.map_cmd import MapCommand
-from .utils.constants import SERVER_NAMES, DEFAULT_AUTO_UPDATE_INTERVAL
+from .utils.constants import DEFAULT_AUTO_UPDATE_INTERVAL
 
 
 class EVEMarketPlugin(Star):
@@ -22,7 +24,12 @@ class EVEMarketPlugin(Star):
         super().__init__(context)
 
         # 读取插件配置
-        self.config = context.get_config().get("eve_market", {})
+        try:
+            self.config = context.get_config() or {}
+            if "eve_market" in self.config:
+                self.config = self.config["eve_market"]
+        except Exception:
+            self.config = {}
 
         # 配置项：定时更新间隔（秒），默认每天
         self.auto_update_interval = self.config.get(
@@ -109,74 +116,107 @@ class EVEMarketPlugin(Star):
 
         logger.info("[EVE Market] 插件已卸载")
 
+    # ==================== 工具方法 ====================
+
+    @staticmethod
+    def _extract_args(event: AstrMessageEvent, cmd: str) -> str:
+        """从消息中提取指令参数
+
+        message_str 形如 "nj 三钛合金"（不含指令前缀），去掉首个指令词
+        """
+        text = (event.message_str or "").strip()
+        parts = text.split(maxsplit=1)
+        if not parts:
+            return ""
+        # 如果首词就是指令本身，去掉它
+        if parts[0].lstrip("/").lower() == cmd.lower():
+            return parts[1].strip() if len(parts) > 1 else ""
+        # 否则整体视为参数
+        return text
+
     # ==================== 指令注册 ====================
 
     @filter.command("ss")
-    async def cmd_server_status(self, message: AstrBotMessage) -> CommandResult:
+    async def cmd_server_status(self, event: AstrMessageEvent):
         """查询 EVE 三服服务器状态"""
         result = await self.server_status_cmd.handle()
-        return CommandResult().message(result)
+        yield event.plain_result(result)
 
     @filter.command("nj")
-    async def cmd_tranquility_price(self, message: AstrBotMessage, args: str = "") -> CommandResult:
+    async def cmd_tranquility_price(self, event: AstrMessageEvent):
         """查询宁静服物品价格"""
-        if not args.strip():
-            return CommandResult().message("❌ 用法：nj <物品名>")
-        result = await self.price_query_cmd.handle("tranquility", args.strip())
-        return CommandResult().message(result)
+        args = self._extract_args(event, "nj")
+        if not args:
+            yield event.plain_result("❌ 用法：nj <物品名>")
+            return
+        result = await self.price_query_cmd.handle("tranquility", args)
+        yield event.plain_result(result)
 
     @filter.command("cx")
-    async def cmd_serenity_price(self, message: AstrBotMessage, args: str = "") -> CommandResult:
+    async def cmd_serenity_price(self, event: AstrMessageEvent):
         """查询晨曦服物品价格"""
-        if not args.strip():
-            return CommandResult().message("❌ 用法：cx <物品名>")
-        result = await self.price_query_cmd.handle("serenity", args.strip())
-        return CommandResult().message(result)
+        args = self._extract_args(event, "cx")
+        if not args:
+            yield event.plain_result("❌ 用法：cx <物品名>")
+            return
+        result = await self.price_query_cmd.handle("serenity", args)
+        yield event.plain_result(result)
 
     @filter.command("sg")
-    async def cmd_infinity_price(self, message: AstrBotMessage, args: str = "") -> CommandResult:
+    async def cmd_infinity_price(self, event: AstrMessageEvent):
         """查询曙光服物品价格"""
-        if not args.strip():
-            return CommandResult().message("❌ 用法：sg <物品名>")
-        result = await self.price_query_cmd.handle("infinity", args.strip())
-        return CommandResult().message(result)
+        args = self._extract_args(event, "sg")
+        if not args:
+            yield event.plain_result("❌ 用法：sg <物品名>")
+            return
+        result = await self.price_query_cmd.handle("infinity", args)
+        yield event.plain_result(result)
 
     @filter.command("简称")
-    async def cmd_alias(self, message: AstrBotMessage, args: str = "") -> CommandResult:
+    async def cmd_alias(self, event: AstrMessageEvent):
         """物品别名管理"""
+        args = self._extract_args(event, "简称")
         result = await self.alias_cmd.handle(args)
-        return CommandResult().message(result)
+        yield event.plain_result(result)
 
     # ==================== 地图指令 ====================
 
     @filter.command("aqdt")
-    async def cmd_serenity_safemap(self, message: AstrBotMessage) -> CommandResult:
+    async def cmd_serenity_safemap(self, event: AstrMessageEvent):
         """晨曦安全地图"""
         result = await self.map_cmd.handle_safemap("serenity")
         if result["type"] == "image":
-            return CommandResult().message("📍 晨曦安全地图").use_image(result["path"])
-        return CommandResult().message(result["message"])
+            yield event.plain_result("📍 晨曦安全地图")
+            yield event.image_result(result["path"])
+        else:
+            yield event.plain_result(result["message"])
 
     @filter.command("aqdt_sg")
-    async def cmd_infinity_safemap(self, message: AstrBotMessage) -> CommandResult:
+    async def cmd_infinity_safemap(self, event: AstrMessageEvent):
         """曙光安全地图"""
         result = await self.map_cmd.handle_safemap("infinity")
         if result["type"] == "image":
-            return CommandResult().message("📍 曙光安全地图").use_image(result["path"])
-        return CommandResult().message(result["message"])
+            yield event.plain_result("📍 曙光安全地图")
+            yield event.image_result(result["path"])
+        else:
+            yield event.plain_result(result["message"])
 
     @filter.command("slt")
-    async def cmd_serenity_influence(self, message: AstrBotMessage) -> CommandResult:
+    async def cmd_serenity_influence(self, event: AstrMessageEvent):
         """晨曦势力图"""
         result = await self.map_cmd.handle_influence("serenity")
         if result["type"] == "image":
-            return CommandResult().message("⚔️ 晨曦势力图").use_image(result["path"])
-        return CommandResult().message(result["message"])
+            yield event.plain_result("⚔️ 晨曦势力图")
+            yield event.image_result(result["path"])
+        else:
+            yield event.plain_result(result["message"])
 
     @filter.command("slt_sg")
-    async def cmd_infinity_influence(self, message: AstrBotMessage) -> CommandResult:
+    async def cmd_infinity_influence(self, event: AstrMessageEvent):
         """曙光势力图"""
         result = await self.map_cmd.handle_influence("infinity")
         if result["type"] == "image":
-            return CommandResult().message("⚔️ 曙光势力图").use_image(result["path"])
-        return CommandResult().message(result["message"])
+            yield event.plain_result("⚔️ 曙光势力图")
+            yield event.image_result(result["path"])
+        else:
+            yield event.plain_result(result["message"])
