@@ -44,7 +44,8 @@ class ServerStatusCommand:
         """获取单个服务器状态"""
         data = await self.esi_client.get_server_status(server_key)
 
-        # ESI 返回格式：{"players": 12345, "server_version": "1234567", "start_time": "..."}
+        # ESI 返回格式：{"players": 12345, "server_version": "1234567",
+        #              "start_time": "2026-07-20T03:00:00Z", "vip": false}
         # 如果服务器在线，返回包含 players 的 JSON；如果离线，可能返回 503 或空数据
         players = data.get("players", 0)
         version = data.get("server_version", "")
@@ -56,4 +57,6 @@ class ServerStatusCommand:
             is_online=is_online,
             players=players,
             server_version=version,
+            start_time=data.get("start_time"),
+            vip=data.get("vip"),
         )

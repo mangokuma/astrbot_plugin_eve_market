@@ -4,24 +4,37 @@ from typing import List, Optional
 from ..data.models import ServerStatus, Item, PriceInfo, Alias
 
 
+def _format_start_time(iso_time: Optional[str]) -> str:
+    """将 ESI 的 ISO 启动时间转为易读格式（UTC+8）"""
+    if not iso_time:
+        return "未知"
+    try:
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
+        dt_cn = dt.astimezone(timezone(timedelta(hours=8)))
+        return dt_cn.strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return iso_time
+
+
 def format_server_status(statuses: List[ServerStatus]) -> str:
-    """格式化三服状态查询结果"""
-    lines = ["📡 EVE 服务器状态", "─" * 30]
+    """格式化三服状态查询结果（紧凑版，避免被转为转发样式）"""
+    lines = ["📡 EVE 服务器状态"]
 
     for status in statuses:
         if status.is_online:
-            icon = "🟢"
-            state_text = "在线"
-        else:
-            icon = "🔴"
-            state_text = "离线"
-
-        lines.append(f"{icon} {status.server_name}：{state_text}")
-        if status.is_online:
-            lines.append(f"   👥 在线人数：{status.players:,}")
+            # VIP 标识：ESI 返回 vip=true 时显示
+            vip_badge = " 💎VIP" if status.vip else ""
+            lines.append(
+                f"🟢 {status.server_name}{vip_badge}：在线 | "
+                f"👥{status.players:,} | "
+                f"启动于 {_format_start_time(status.start_time)}"
+            )
             if status.server_version:
-                lines.append(f"   📦 版本：{status.server_version}")
-        lines.append("")
+                lines.append(f"   版本 {status.server_version}")
+        else:
+            vip_badge = " 💎VIP" if status.vip else ""
+            lines.append(f"🔴 {status.server_name}{vip_badge}：离线")
 
     return "\n".join(lines)
 

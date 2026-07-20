@@ -13,6 +13,8 @@ class ServerStatus:
     is_online: bool
     players: int = 0
     server_version: Optional[str] = None
+    start_time: Optional[str] = None   # 服务器启动时间（ESI start_time，ISO 格式）
+    vip: Optional[bool] = None         # ESI vip 标识（仅部分服务器返回）
 
 
 @dataclass
