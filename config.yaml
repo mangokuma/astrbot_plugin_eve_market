@@ -1,0 +1,27 @@
+# EVE Market 插件配置
+# 将此配置添加到 AstrBot 的 config.yaml 中的 plugins 部分
+
+eve_market:
+  # 数据库文件路径（相对于 AstrBot 根目录）
+  db_path: "./data/eve_items.db"
+
+  # 自动更新间隔（秒）
+  # 默认 86400 秒 = 24 小时（每天）
+  # 设为 0 可禁用自动更新
+  auto_update_interval: 86400
+
+  # 搜索结果最大数量
+  max_search_results: 6
+
+  # 是否启用模糊搜索
+  fuzzy_match: true
+
+  # 模糊搜索模式
+  # contains: 包含匹配（默认）
+  # starts_with: 前缀匹配
+  # ends_with: 后缀匹配
+  fuzzy_pattern: "contains"
+
+  # 模糊搜索可信度最低阈值（百分比）
+  # 非连续子串匹配的可信度低于此值的结果将被过滤
+  min_confidence: 50
