@@ -95,6 +95,10 @@ DEFAULT_MIN_CONFIDENCE = 50
 DEFAULT_DB_PATH = "./data/eve_items.db"
 
 # ============================================
-# 自动更新配置
+# 物品数据自动更新配置
 # ============================================
-DEFAULT_AUTO_UPDATE_INTERVAL = 86400  # 秒，默认每天
+# 每天自动更新时刻（HH:MM 格式），空字符串表示禁用自动更新
+DEFAULT_AUTO_UPDATE_TIME = "05:07"
+
+# 自动更新失败后的重试间隔（分钟）
+DEFAULT_UPDATE_RETRY_MINUTES = 30
