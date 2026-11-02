@@ -6,6 +6,7 @@ import re
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
+from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
 
 from .data.db import Database
 from .data.item_manager import ItemManager
@@ -17,7 +18,8 @@ from .commands.price_query import PriceQueryCommand
 from .commands.alias_cmd import AliasCommand
 from .commands.map_cmd import MapCommand
 from .commands.group_cmd import GroupCommand
-from .utils.constants import DEFAULT_AUTO_UPDATE_INTERVAL
+from .commands.update_cmd import UpdateCommand
+from .utils.constants import DEFAULT_AUTO_UPDATE_TIME, DEFAULT_UPDATE_RETRY_MINUTES
 
 
 class EVEMarketPlugin(Star):
@@ -34,10 +36,19 @@ class EVEMarketPlugin(Star):
         except Exception:
             self.config = {}
 
-        # 配置项：定时更新间隔（秒），默认每天
-        self.auto_update_interval = self.config.get(
-            "auto_update_interval",
-            DEFAULT_AUTO_UPDATE_INTERVAL
+        # 配置项：每天自动更新时刻（HH:MM），空字符串表示禁用
+        self.auto_update_time = self.config.get(
+            "auto_update_time",
+            DEFAULT_AUTO_UPDATE_TIME
+        )
+        # 兼容旧配置：auto_update_interval 设为 0 表示禁用自动更新
+        if self.config.get("auto_update_interval") == 0:
+            self.auto_update_time = ""
+
+        # 配置项：自动更新失败后的重试间隔（分钟）
+        self.update_retry_minutes = self.config.get(
+            "update_retry_minutes",
+            DEFAULT_UPDATE_RETRY_MINUTES
         )
 
         # 插件数据目录：AstrBot data/plugin_data/eve_market
@@ -50,7 +61,8 @@ class EVEMarketPlugin(Star):
         self.db = Database(db_path=db_path)
         self.item_manager = ItemManager(
             self.db,
-            auto_update_interval=self.auto_update_interval
+            auto_update_time=self.auto_update_time,
+            retry_minutes=self.update_retry_minutes
         )
         self.alias_manager = AliasManager(self.db)
         self.group_manager = GroupManager(self.db)
@@ -61,6 +73,7 @@ class EVEMarketPlugin(Star):
         self.price_query_cmd = PriceQueryCommand(self.item_manager, self.alias_manager, self.group_manager)
         self.alias_cmd = AliasCommand(self.alias_manager)
         self.group_cmd = GroupCommand(self.group_manager)
+        self.update_cmd = UpdateCommand(self.item_manager)
         self.map_cmd = MapCommand(self.image_manager)
 
         # 后台任务
@@ -76,13 +89,13 @@ class EVEMarketPlugin(Star):
         item_count = self.item_manager.get_item_count()
         if item_count == 0:
             logger.info("[EVE Market] 首次启动，正在下载物品数据...")
-            success, msg = await self.item_manager.update_items()
+            success, msg = await self.item_manager.update_items(trigger="init")
             logger.info(f"[EVE Market] {msg}")
         else:
             last_update = self.item_manager.get_last_update_time()
             logger.info(f"[EVE Market] 物品数据已存在，共 {item_count} 条，上次更新：{last_update}")
 
-        # 启动物品数据自动更新
+        # 启动物品数据自动更新（每天固定时刻）
         self._auto_update_task = asyncio.create_task(
             self.item_manager.auto_update_scheduler()
         )
@@ -148,6 +161,27 @@ class EVEMarketPlugin(Star):
         # 否则整体视为参数
         return text
 
+    async def _check_admin(self, event: AstrMessageEvent) -> tuple[bool, str]:
+        """校验管理权限：群聊中仅群主/管理员可用，私聊放行
+
+        Returns:
+            (是否允许, 拒绝提示文本)
+        """
+        group_id = event.get_group_id()
+        if not group_id:
+            return True, ""
+        if not isinstance(event, AiocqhttpMessageEvent):
+            return False, "❌ 当前平台不支持权限校验，请在私聊中使用"
+        sender_id = event.get_sender_id()
+        try:
+            members = await event.bot.get_group_member_list(group_id=group_id)
+        except Exception as e:
+            return False, f"❌ 获取群成员信息失败：{e}"
+        for m in members:
+            if str(m.get("user_id")) == sender_id and m.get("role") in ("owner", "admin"):
+                return True, ""
+        return False, "❌ 仅群主/管理员可使用此指令"
+
     # ==================== 指令注册 ====================
 
     @filter.command("ss")
@@ -198,6 +232,23 @@ class EVEMarketPlugin(Star):
         """物品组管理"""
         args = self._extract_args(event, "物品组")
         result = await self.group_cmd.handle(args)
+        yield event.plain_result(result)
+
+    @filter.command("更新物品")
+    async def cmd_update_items(self, event: AstrMessageEvent):
+        """手动更新物品数据（仅群主/管理员）"""
+        allowed, deny_msg = await self._check_admin(event)
+        if not allowed:
+            yield event.plain_result(deny_msg)
+            return
+        yield event.plain_result("📥 开始更新物品数据，请稍候...")
+        result = await self.update_cmd.handle_update()
+        yield event.plain_result(result)
+
+    @filter.command("更新状态")
+    async def cmd_update_status(self, event: AstrMessageEvent):
+        """查询物品数据更新状态"""
+        result = self.update_cmd.handle_status()
         yield event.plain_result(result)
 
     # ==================== 地图指令 ====================
