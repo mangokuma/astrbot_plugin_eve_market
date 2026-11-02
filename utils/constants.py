@@ -43,6 +43,9 @@ SERVER_KEYS = ["tranquility", "serenity", "infinity"]
 # ============================================
 ITEM_DUMP_URL = "https://www.ceve-market.org/dumps/evedata.xlsx"
 
+# 备用数据源：eve.c3q.cc 静态数据（JS 包装 JSON，中文名，含 marketGroupID）
+ITEM_DUMP_FALLBACK_URL = "https://eve.c3q.cc/market/data/types/zh/"
+
 # ============================================
 # 安全地图图片 URL
 # ============================================
