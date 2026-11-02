@@ -6,10 +6,15 @@ eve_market:
   # data/plugin_data/eve_market/eve_items.db）
   db_path: ""
 
-  # 自动更新间隔（秒）
-  # 默认 86400 秒 = 24 小时（每天）
-  # 设为 0 可禁用自动更新
-  auto_update_interval: 86400
+  # 每天自动更新物品数据的时刻（HH:MM 格式）
+  # 默认 "05:07"（凌晨低峰时段）
+  # 留空 "" 表示禁用自动更新
+  # （旧配置 auto_update_interval: 0 同样表示禁用）
+  auto_update_time: "05:07"
+
+  # 自动更新失败后的重试间隔（分钟）
+  # 到达设定时刻更新失败时，会在该间隔后重试一次
+  update_retry_minutes: 30
 
   # 搜索结果最大数量
   max_search_results: 6
