@@ -2,8 +2,9 @@
 
 import asyncio
 import io
+import json
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import aiohttp
 import pandas as pd
@@ -13,9 +14,19 @@ from .db import Database
 from .models import Item
 from ..utils.constants import (
     ITEM_DUMP_URL,
+    ITEM_DUMP_FALLBACK_URL,
     DEFAULT_AUTO_UPDATE_TIME,
     DEFAULT_UPDATE_RETRY_MINUTES,
 )
+
+# 请求头：部分数据源（如 ceve-market）的风控会拦截默认的 aiohttp UA
+_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    ),
+    "Accept": "*/*",
+}
 
 
 class ItemManager:
@@ -54,46 +65,7 @@ class ItemManager:
 
         async with self._lock:
             try:
-                # 下载 xlsx
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(ITEM_DUMP_URL, timeout=aiohttp.ClientTimeout(total=60)) as response:
-                        response.raise_for_status()
-                        data = await response.read()
-
-                # 解析 xlsx
-                # 实际结构（ceve-market evedata.xlsx）：
-                #   sheet「物品列表」，列：typeID / 物品名称 / 描述 / 第一~第七市场分类
-                # 兼容英文列名（type_id / name）以防格式变更
-                df = pd.read_excel(
-                    io.BytesIO(data),
-                    sheet_name="物品列表",
-                    engine="openpyxl",
-                )
-
-                # 列名映射：兼容中英文
-                col_map = {}
-                for col in df.columns:
-                    cl = str(col).strip().lower()
-                    if cl in ("typeid", "type_id"):
-                        col_map[col] = "type_id"
-                    elif cl in ("物品名称", "name"):
-                        col_map[col] = "name"
-                df = df.rename(columns=col_map)
-
-                items = []
-                for _, row in df.iterrows():
-                    try:
-                        item = Item(
-                            type_id=int(row.get("type_id", 0)),
-                            name=str(row.get("name", "")).strip(),
-                        )
-                        if item.type_id > 0 and item.name and item.name.lower() != "nan":
-                            items.append(item)
-                    except (ValueError, TypeError):
-                        continue
-
-                if not items:
-                    raise ValueError("解析结果为空，数据文件格式可能已变更")
+                items, source = await self._fetch_items()
 
                 # 写入数据库
                 self.db.insert_items(items)
@@ -102,8 +74,9 @@ class ItemManager:
                 self.db.set_meta("last_update_count", str(len(items)))
                 self.db.set_meta("last_update_error", "")
 
-                logger.info(f"[EVE Market] 物品数据更新成功（{trigger}），共 {len(items)} 条")
-                return True, f"✅ 物品数据更新成功！共导入 {len(items)} 条记录"
+                source_note = "" if source == "primary" else f"（备用数据源：{source}）"
+                logger.info(f"[EVE Market] 物品数据更新成功（{trigger}），共 {len(items)} 条{source_note}")
+                return True, f"✅ 物品数据更新成功！共导入 {len(items)} 条记录{source_note}"
 
             except Exception as e:
                 err = str(e)
@@ -111,6 +84,123 @@ class ItemManager:
                 self.db.set_meta("last_update_status", "failed")
                 self.db.set_meta("last_update_error", err)
                 return False, f"❌ 更新失败：{err}"
+
+    # ==================== 数据源 ====================
+
+    async def _fetch_items(self) -> Tuple[List[Item], str]:
+        """获取物品数据：主数据源失败时自动降级到备用数据源
+
+        Returns:
+            (物品列表, 数据源标识："primary" 或备用源名称)
+
+        Raises:
+            Exception: 两个数据源均失败时抛出最后合并的错误
+        """
+        primary_err = None
+        try:
+            data = await self._download(ITEM_DUMP_URL)
+            return self._parse_xlsx(data), "primary"
+        except Exception as e:
+            primary_err = e
+            logger.warning(f"[EVE Market] 主数据源（ceve-market）获取失败：{e}")
+
+        try:
+            data = await self._download(ITEM_DUMP_FALLBACK_URL)
+            return self._parse_c3q_js(data), "eve.c3q.cc"
+        except Exception as e:
+            raise ValueError(
+                f"主数据源与备用数据源均不可用。"
+                f"主数据源：{primary_err}；备用数据源：{e}"
+            )
+
+    async def _download(self, url: str) -> bytes:
+        """下载数据文件"""
+        async with aiohttp.ClientSession(headers=_REQUEST_HEADERS) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                response.raise_for_status()
+                return await response.read()
+
+    def _parse_xlsx(self, data: bytes) -> List[Item]:
+        """解析 ceve-market evedata.xlsx
+
+        Raises:
+            ValueError: 内容不是有效 xlsx（如被反爬拦截返回 HTML）或解析为空
+        """
+        # xlsx 本质是 zip，以 PK 魔数开头；HTML 拦截页没有该特征
+        if data[:4] != b"PK\x03\x04":
+            raise ValueError("主数据源返回的不是有效的数据文件（可能被反爬风控临时拦截）")
+
+        # 实际结构（ceve-market evedata.xlsx）：
+        #   sheet「物品列表」，列：typeID / 物品名称 / 描述 / 第一~第七市场分类
+        # 兼容英文列名（type_id / name）以防格式变更
+        df = pd.read_excel(
+            io.BytesIO(data),
+            sheet_name="物品列表",
+            engine="openpyxl",
+        )
+
+        # 列名映射：兼容中英文
+        col_map = {}
+        for col in df.columns:
+            cl = str(col).strip().lower()
+            if cl in ("typeid", "type_id"):
+                col_map[col] = "type_id"
+            elif cl in ("物品名称", "name"):
+                col_map[col] = "name"
+        df = df.rename(columns=col_map)
+
+        items = []
+        for _, row in df.iterrows():
+            try:
+                item = Item(
+                    type_id=int(row.get("type_id", 0)),
+                    name=str(row.get("name", "")).strip(),
+                )
+                if item.type_id > 0 and item.name and item.name.lower() != "nan":
+                    items.append(item)
+            except (ValueError, TypeError):
+                continue
+
+        if not items:
+            raise ValueError("主数据源解析结果为空，数据文件格式可能已变更")
+        return items
+
+    def _parse_c3q_js(self, data: bytes) -> List[Item]:
+        """解析 eve.c3q.cc 静态数据（JS 包装 JSON）
+
+        结构：eve_types={"<typeID>": ["中文名", 体积, ?, marketGroupID, groupID, ...], ...}
+        marketGroupID 为 null 的是恒星/行星/星系等非交易物，过滤后与 evedata.xlsx 口径对齐
+        """
+        try:
+            raw = data.decode("utf-8")
+            start = raw.index("{")
+            end = raw.rindex("}")
+            payload = json.loads(raw[start:end + 1])
+        except Exception as e:
+            raise ValueError(f"备用数据源解析失败：{e}")
+
+        items = []
+        for tid, arr in payload.items():
+            try:
+                type_id = int(tid)
+                name = str(arr[0]).strip()
+                volume = arr[1] if len(arr) > 1 else None
+                market_group_id = arr[3] if len(arr) > 3 else None
+                group_id = arr[4] if len(arr) > 4 else None
+            except (ValueError, TypeError, IndexError):
+                continue
+            if type_id > 0 and name and name.lower() != "nan" and market_group_id is not None:
+                items.append(Item(
+                    type_id=type_id,
+                    name=name,
+                    group_id=group_id,
+                    market_group_id=market_group_id,
+                    volume=volume,
+                ))
+
+        if not items:
+            raise ValueError("备用数据源解析结果为空")
+        return items
 
     # ==================== 自动更新调度 ====================
 
