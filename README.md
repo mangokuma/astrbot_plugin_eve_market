@@ -23,7 +23,8 @@ EVE Online 三服（宁静 / 晨曦 / 曙光）市场查询插件，基于 AstrB
 
 ## 特性
 
-- 物品数据每天固定时刻自动更新（默认 05:07，可配置，CEVE Market evedata.xlsx），失败自动重试
+- 物品数据每天固定时刻自动更新（默认 05:07，可配置），失败自动重试
+- 双数据源：主数据源 CEVE Market evedata.xlsx；被风控拦截时自动降级备用数据源 eve.c3q.cc（结果中标注来源）
 - `更新物品` 指令可随时手动更新，与自动更新互斥（不会并发清空数据）
 - 非连续子串模糊搜索，可信度阈值可配置（默认 ≥50%），最多展示 6 个结果
 - 模糊多结果直接展示全部物品的最高收单 / 最低卖单
@@ -52,3 +53,4 @@ EVE Online 三服（宁静 / 晨曦 / 曙光）市场查询插件，基于 AstrB
 - ESI：https://esi.evetech.net
 - 网易 ESI：https://ali-esi.evepc.163.com
 - CEVE Market：https://www.ceve-market.org
+- EVE Market（备用数据源）：https://eve.c3q.cc/market/
