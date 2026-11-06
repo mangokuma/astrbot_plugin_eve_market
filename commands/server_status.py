@@ -22,7 +22,7 @@ class ServerStatusCommand:
             格式化后的回复文本
         """
         # 并发请求三个服务器状态
-        tasks = [self._fetch_single_status(key) for key in SERVER_KEYS]
+        tasks = [self.esi_client.fetch_server_status(key) for key in SERVER_KEYS]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         statuses: List[ServerStatus] = []
@@ -39,24 +39,3 @@ class ServerStatusCommand:
                 statuses.append(result)
 
         return format_server_status(statuses)
-
-    async def _fetch_single_status(self, server_key: str) -> ServerStatus:
-        """获取单个服务器状态"""
-        data = await self.esi_client.get_server_status(server_key)
-
-        # ESI 返回格式：{"players": 12345, "server_version": "1234567",
-        #              "start_time": "2026-07-20T03:00:00Z", "vip": false}
-        # 如果服务器在线，返回包含 players 的 JSON；如果离线，可能返回 503 或空数据
-        players = data.get("players", 0)
-        version = data.get("server_version", "")
-        is_online = players > 0 or bool(version)
-
-        return ServerStatus(
-            server_key=server_key,
-            server_name=SERVER_NAMES[server_key],
-            is_online=is_online,
-            players=players,
-            server_version=version,
-            start_time=data.get("start_time"),
-            vip=data.get("vip"),
-        )
