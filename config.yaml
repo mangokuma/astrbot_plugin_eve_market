@@ -16,6 +16,18 @@ eve_market:
   # 到达设定时刻更新失败时，会在该间隔后重试一次
   update_retry_minutes: 30
 
+  # 每日维护监控（晨曦/曙光每天 11:00 例行维护）
+  # 监控窗口内检测到服务器离线后恢复在线时，向指定群聊推送开服消息
+  # 每服每天只推送一次；到窗口结束仍未恢复则静默结束
+  maintenance_monitor_enabled: true
+  # 推送群号列表（aiocqhttp 平台），留空则不启用监控
+  maintenance_notify_groups: ["123456789"]
+  # 监控窗口（HH:MM）
+  maintenance_check_start: "11:01"
+  maintenance_check_end: "15:00"
+  # 检查间隔（分钟）
+  maintenance_check_interval: 1
+
   # 搜索结果最大数量
   max_search_results: 6
 
