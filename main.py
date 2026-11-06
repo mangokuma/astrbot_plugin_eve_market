@@ -6,6 +6,7 @@ import re
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
+import astrbot.api.message_components as Comp
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
 
 from .data.db import Database
@@ -13,13 +14,21 @@ from .data.item_manager import ItemManager
 from .data.alias_manager import AliasManager
 from .data.image_manager import ImageManager
 from .data.group_manager import GroupManager
+from .data.server_monitor import ServerMonitor
 from .commands.server_status import ServerStatusCommand
 from .commands.price_query import PriceQueryCommand
 from .commands.alias_cmd import AliasCommand
 from .commands.map_cmd import MapCommand
 from .commands.group_cmd import GroupCommand
 from .commands.update_cmd import UpdateCommand
-from .utils.constants import DEFAULT_AUTO_UPDATE_TIME, DEFAULT_UPDATE_RETRY_MINUTES
+from .utils.constants import (
+    DEFAULT_AUTO_UPDATE_TIME,
+    DEFAULT_UPDATE_RETRY_MINUTES,
+    MAINTENANCE_MONITOR_SERVERS,
+    DEFAULT_MAINTENANCE_CHECK_START,
+    DEFAULT_MAINTENANCE_CHECK_END,
+    DEFAULT_MAINTENANCE_CHECK_INTERVAL,
+)
 
 
 class EVEMarketPlugin(Star):
@@ -51,6 +60,26 @@ class EVEMarketPlugin(Star):
             DEFAULT_UPDATE_RETRY_MINUTES
         )
 
+        # 配置项：每日维护监控（晨曦/曙光 11:00 例行维护，恢复后推送开服消息）
+        self.maintenance_monitor_enabled = bool(
+            self.config.get("maintenance_monitor_enabled", True)
+        )
+        notify_groups = self.config.get("maintenance_notify_groups", [])
+        if isinstance(notify_groups, (str, int)):
+            notify_groups = [notify_groups]
+        self.maintenance_notify_groups = [
+            str(g).strip() for g in notify_groups if str(g).strip()
+        ]
+        self.maintenance_check_start = self.config.get(
+            "maintenance_check_start", DEFAULT_MAINTENANCE_CHECK_START
+        )
+        self.maintenance_check_end = self.config.get(
+            "maintenance_check_end", DEFAULT_MAINTENANCE_CHECK_END
+        )
+        self.maintenance_check_interval = self.config.get(
+            "maintenance_check_interval", DEFAULT_MAINTENANCE_CHECK_INTERVAL
+        )
+
         # 插件数据目录：AstrBot data/plugin_data/eve_market
         # 数据库与图片缓存统一存放于此，可通过 config 覆盖数据库路径
         self.plugin_data_dir = StarTools.get_data_dir("eve_market")
@@ -76,12 +105,44 @@ class EVEMarketPlugin(Star):
         self.update_cmd = UpdateCommand(self.item_manager)
         self.map_cmd = MapCommand(self.image_manager)
 
+        # 每日维护监控：恢复在线后推送开服消息到指定群聊
+        self.server_monitor = None
+        if self.maintenance_monitor_enabled:
+            if self.maintenance_notify_groups:
+                self.server_monitor = ServerMonitor(
+                    esi_client=self.server_status_cmd.esi_client,
+                    push_callback=self._make_push_callback(),
+                    server_keys=list(MAINTENANCE_MONITOR_SERVERS),
+                    check_start=self.maintenance_check_start,
+                    check_end=self.maintenance_check_end,
+                    interval_minutes=self.maintenance_check_interval,
+                )
+            else:
+                logger.warning(
+                    "[EVE Market] 维护监控已启用但未配置 maintenance_notify_groups，"
+                    "开服消息将无法推送"
+                )
+
         # 后台任务
         self._auto_update_task = None
         self._safemap_task = None
         self._influence_task = None
+        self._monitor_task = None
 
         logger.info("[EVE Market] 插件初始化完成")
+
+    def _make_push_callback(self):
+        """构造开服推送回调：向所有配置的群聊发送消息"""
+        async def _push(msg: str):
+            for gid in self.maintenance_notify_groups:
+                try:
+                    await self.context.send_message(
+                        f"aiocqhttp:GroupMessage:{gid}",
+                        [Comp.Plain(msg)],
+                    )
+                except Exception as e:
+                    logger.error(f"[EVE Market] 推送开服消息到群 {gid} 失败：{e}")
+        return _push
 
     async def initialize(self):
         """插件初始化（AstrBot 调用）"""
@@ -116,6 +177,10 @@ class EVEMarketPlugin(Star):
             self.image_manager.influence_scheduler()
         )
 
+        # 启动每日维护监控（晨曦/曙光 11:00 例行维护）
+        if self.server_monitor:
+            self._monitor_task = asyncio.create_task(self.server_monitor.run())
+
         logger.info("[EVE Market] 所有后台任务已启动")
 
     async def terminate(self):
@@ -124,6 +189,7 @@ class EVEMarketPlugin(Star):
             ("auto_update", self._auto_update_task),
             ("safemap", self._safemap_task),
             ("influence", self._influence_task),
+            ("maintenance_monitor", self._monitor_task),
         ]
 
         for name, task in tasks:
@@ -250,6 +316,16 @@ class EVEMarketPlugin(Star):
         """查询物品数据更新状态"""
         result = self.update_cmd.handle_status()
         yield event.plain_result(result)
+
+    @filter.command("维护监控")
+    async def cmd_maintenance_monitor(self, event: AstrMessageEvent):
+        """查询每日维护监控状态"""
+        if not self.server_monitor:
+            yield event.plain_result(
+                "⚠️ 维护监控未启用（已禁用或未配置 maintenance_notify_groups）"
+            )
+            return
+        yield event.plain_result(self.server_monitor.get_status_text())
 
     # ==================== 地图指令 ====================
 
