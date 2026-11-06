@@ -34,16 +34,27 @@ from .utils.constants import (
 class EVEMarketPlugin(Star):
     """EVE 三服市场查询插件"""
 
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
 
         # 读取插件配置
-        try:
-            self.config = context.get_config() or {}
-            if "eve_market" in self.config:
-                self.config = self.config["eve_market"]
-        except Exception:
+        # 优先使用 AstrBot 插件配置管理（_conf_schema.json，可在 WebUI 可视化配置）；
+        # 兼容旧版：未提供 _conf_schema.json 时回退到全局配置的 plugins.eve_market 段
+        if config is not None:
+            self.config = dict(config)
+        else:
             self.config = {}
+            try:
+                legacy = context.get_config() or {}
+                if isinstance(legacy, dict):
+                    plugins_conf = legacy.get("plugins") or {}
+                    self.config = (
+                        plugins_conf.get("eve_market")
+                        or legacy.get("eve_market")
+                        or {}
+                    )
+            except Exception:
+                self.config = {}
 
         # 配置项：每天自动更新时刻（HH:MM），空字符串表示禁用
         self.auto_update_time = self.config.get(
@@ -80,6 +91,12 @@ class EVEMarketPlugin(Star):
             "maintenance_check_interval", DEFAULT_MAINTENANCE_CHECK_INTERVAL
         )
 
+        # 配置项：模糊搜索
+        self.fuzzy_match = bool(self.config.get("fuzzy_match", True))
+        self.max_search_results = self.config.get("max_search_results", 6)
+        self.fuzzy_pattern = self.config.get("fuzzy_pattern", "contains")
+        self.min_confidence = self.config.get("min_confidence", 50)
+
         # 插件数据目录：AstrBot data/plugin_data/eve_market
         # 数据库与图片缓存统一存放于此，可通过 config 覆盖数据库路径
         self.plugin_data_dir = StarTools.get_data_dir("eve_market")
@@ -99,7 +116,15 @@ class EVEMarketPlugin(Star):
 
         # 初始化指令层
         self.server_status_cmd = ServerStatusCommand()
-        self.price_query_cmd = PriceQueryCommand(self.item_manager, self.alias_manager, self.group_manager)
+        self.price_query_cmd = PriceQueryCommand(
+            self.item_manager,
+            self.alias_manager,
+            self.group_manager,
+            fuzzy_match=self.fuzzy_match,
+            max_results=self.max_search_results,
+            fuzzy_pattern=self.fuzzy_pattern,
+            min_confidence=self.min_confidence,
+        )
         self.alias_cmd = AliasCommand(self.alias_manager)
         self.group_cmd = GroupCommand(self.group_manager)
         self.update_cmd = UpdateCommand(self.item_manager)
