@@ -298,12 +298,20 @@ class ItemManager:
         keyword: str,
         fuzzy: bool = True,
         max_results: int = 6,
+        fuzzy_pattern: str = "contains",
+        min_confidence: float = 50,
     ) -> List[Item]:
         """搜索物品（供指令层调用）
 
         默认使用 contains 模式，支持非连续子串搜索，可信度≥50%
         """
-        return self.db.search_items(keyword, fuzzy=fuzzy, max_results=max_results)
+        return self.db.search_items(
+            keyword,
+            fuzzy=fuzzy,
+            max_results=max_results,
+            fuzzy_pattern=fuzzy_pattern,
+            min_confidence=min_confidence,
+        )
 
     def get_items_by_prefix(self, prefix: str, max_results: int = 20) -> List[Item]:
         """按名称前缀获取物品（供物品组展开使用）"""
