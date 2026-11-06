@@ -24,10 +24,18 @@ class PriceQueryCommand:
         item_manager: ItemManager,
         alias_manager: AliasManager,
         group_manager: GroupManager,
+        fuzzy_match: bool = True,
+        max_results: int = 6,
+        fuzzy_pattern: str = "contains",
+        min_confidence: float = 50,
     ):
         self.item_manager = item_manager
         self.alias_manager = alias_manager
         self.group_manager = group_manager
+        self.fuzzy_match = fuzzy_match
+        self.max_results = max_results
+        self.fuzzy_pattern = fuzzy_pattern
+        self.min_confidence = min_confidence
         self.ceve_client = CEVEClient()
 
     async def handle(self, server_key: str, keyword: str) -> str:
@@ -61,11 +69,17 @@ class PriceQueryCommand:
             entries = await self._query_prices(server_key, items)
             return format_group_price_result(group.group_name, group.prefix, entries, server_name)
 
-        # Step 3: 搜索物品（模糊搜索，最多6个结果，可信度>=50%）
-        items = self.item_manager.search_item(resolved_name, fuzzy=True, max_results=6)
+        # Step 3: 搜索物品（模糊搜索，可信度阈值可配置）
+        items = self.item_manager.search_item(
+            resolved_name,
+            fuzzy=self.fuzzy_match,
+            max_results=self.max_results,
+            fuzzy_pattern=self.fuzzy_pattern,
+            min_confidence=self.min_confidence,
+        )
 
         if not items:
-            return f"❌ 未找到与「{keyword}」相关的物品（可信度>=50%）"
+            return f"❌ 未找到与「{keyword}」相关的物品（可信度>={self.min_confidence}%）"
 
         # 结果唯一 → 直接展示价格
         if len(items) == 1:
