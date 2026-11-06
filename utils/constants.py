@@ -105,3 +105,16 @@ DEFAULT_AUTO_UPDATE_TIME = "05:07"
 
 # 自动更新失败后的重试间隔（分钟）
 DEFAULT_UPDATE_RETRY_MINUTES = 30
+
+# ============================================
+# 每日维护监控配置（晨曦/曙光每天 11:00 例行维护）
+# ============================================
+# 监控窗口（HH:MM）：窗口内周期性检查，服务器离线后恢复时推送开服消息
+DEFAULT_MAINTENANCE_CHECK_START = "11:01"
+DEFAULT_MAINTENANCE_CHECK_END = "15:00"
+
+# 检查间隔（分钟）
+DEFAULT_MAINTENANCE_CHECK_INTERVAL = 1
+
+# 被监控的服务器
+MAINTENANCE_MONITOR_SERVERS = ["serenity", "infinity"]
