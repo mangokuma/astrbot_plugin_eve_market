@@ -1,0 +1,75 @@
+{
+    "db_path": {
+        "type": "string",
+        "description": "数据库文件路径",
+        "hint": "留空则使用 AstrBot 标准插件数据目录 data/plugin_data/eve_market/eve_items.db",
+        "default": ""
+    },
+    "auto_update_time": {
+        "type": "string",
+        "description": "物品数据每天自动更新时刻",
+        "hint": "HH:MM 格式，如 05:07；留空表示禁用自动更新",
+        "default": "05:07"
+    },
+    "update_retry_minutes": {
+        "type": "int",
+        "description": "自动更新失败后的重试间隔（分钟）",
+        "hint": "到达设定时刻更新失败时，在该间隔后重试一次",
+        "default": 30
+    },
+    "fuzzy_match": {
+        "type": "bool",
+        "description": "启用模糊搜索",
+        "default": true
+    },
+    "max_search_results": {
+        "type": "int",
+        "description": "搜索结果最大数量",
+        "default": 6
+    },
+    "fuzzy_pattern": {
+        "type": "string",
+        "description": "模糊搜索模式",
+        "options": ["contains", "starts_with", "ends_with"],
+        "labels": ["包含匹配", "前缀匹配", "后缀匹配"],
+        "default": "contains"
+    },
+    "min_confidence": {
+        "type": "int",
+        "description": "模糊搜索可信度最低阈值（百分比）",
+        "hint": "非连续子串匹配的可信度低于此值的结果将被过滤",
+        "default": 50
+    },
+    "maintenance_monitor_enabled": {
+        "type": "bool",
+        "description": "启用每日维护监控",
+        "hint": "晨曦/曙光每天 11:00 例行维护，恢复后推送开服消息",
+        "default": true
+    },
+    "maintenance_notify_groups": {
+        "type": "list",
+        "description": "开服推送群号列表",
+        "hint": "填写 QQ 群号，如 [\"123456789\"]；留空则不启用监控推送（aiocqhttp 平台）",
+        "default": [],
+        "items": {
+            "type": "string"
+        }
+    },
+    "maintenance_check_start": {
+        "type": "string",
+        "description": "监控窗口开始时刻",
+        "hint": "HH:MM 格式，建议 11:01（11:00 例行维护开始之后）",
+        "default": "11:01"
+    },
+    "maintenance_check_end": {
+        "type": "string",
+        "description": "监控窗口结束时刻",
+        "hint": "HH:MM 格式，到点仍未恢复则静默结束，次日重新开始",
+        "default": "15:00"
+    },
+    "maintenance_check_interval": {
+        "type": "int",
+        "description": "维护监控检查间隔（分钟）",
+        "default": 1
+    }
+}
