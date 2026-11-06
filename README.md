@@ -36,18 +36,30 @@ EVE Online 三服（宁静 / 晨曦 / 曙光）市场查询插件，基于 AstrB
 
 ## 配置
 
-参见 `config.yaml` 示例，关键配置项：
+自 v1.5.0 起，配置统一通过 **AstrBot 内置插件配置管理** 进行：
 
+1. 打开 AstrBot WebUI →「插件管理」→ 找到 `eve_market` → 点击「设置」
+2. AstrBot 会自动生成 `data/config/<插件目录名>_config.json`（首次打开时以默认值填充），可视化修改即可，保存后重载插件生效
+
+配置项说明：
+
+- `db_path`：物品数据库路径，留空使用默认（`data/plugin_data/eve_market/eve_items.db`）
 - `auto_update_time`：每天自动更新物品数据的时刻（HH:MM），默认 `05:07`，留空禁用
 - `update_retry_minutes`：自动更新失败后的重试间隔（分钟），默认 30
-- `maintenance_monitor_enabled`：每日维护监控开关，默认 `true`
-- `maintenance_notify_groups`：开服推送群号列表（aiocqhttp 平台），留空则不启用监控
+- `fuzzy_match`：模糊搜索开关，默认开启
+- `max_search_results`：模糊搜索最多展示的结果数，默认 6
+- `fuzzy_pattern`：匹配模式（`contains` 包含 / `starts_with` 开头 / `ends_with` 结尾），默认 `contains`
+- `min_confidence`：模糊搜索可信度阈值（%），默认 50
+- `maintenance_monitor_enabled`：每日维护监控开关，默认开启
+- `maintenance_notify_groups`：开服推送群号列表（aiocqhttp 平台），**留空则不启用监控推送**
 - `maintenance_check_start` / `maintenance_check_end`：监控窗口（HH:MM），默认 `11:01` – `15:00`
 - `maintenance_check_interval`：检查间隔（分钟），默认 1
 
+> 兼容说明：若通过旧方式（全局配置 `plugins.eve_market` 段）提供配置，插件仍会读取作为回退；但推荐统一使用 WebUI 插件设置管理。
+
 ## 安装
 
-将本目录放入 AstrBot 的 `data/plugins/` 下，并在 AstrBot 配置中添加（参见 `config.yaml` 示例）。
+将本目录放入 AstrBot 的 `data/plugins/` 下，重启或重载插件后，在 WebUI「插件管理」中进入 `eve_market` 的「设置」页填写配置（首次打开会自动生成默认配置文件）。
 
 ## 依赖
 
@@ -58,4 +70,3 @@ EVE Online 三服（宁静 / 晨曦 / 曙光）市场查询插件，基于 AstrB
 - ESI：https://esi.evetech.net
 - 网易 ESI：https://ali-esi.evepc.163.com
 - CEVE Market：https://www.ceve-market.org
-- EVE Market（备用数据源）：https://eve.c3q.cc/market/
