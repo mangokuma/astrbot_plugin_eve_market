@@ -25,7 +25,7 @@ EVE Online 三服（宁静 / 晨曦 / 曙光）市场查询插件，基于 AstrB
 ## 特性
 
 - 物品数据每天固定时刻自动更新（默认 05:07，可配置，CEVE Market evedata.xlsx），失败自动重试
-- 每日维护监控：晨曦/曙光每天 11:00 例行维护，监控窗口内（默认 11:01–15:00，每 1 分钟）检测到服务器离线后恢复在线时，自动向指定群聊推送开服消息（每服每天一次）
+- 每日维护监控：晨曦/曙光每天 11:00 例行维护，监控窗口内（默认 11:01–15:00，每 1 分钟）检测到服务器离线后恢复在线时，自动向指定会话推送开服消息（每服每天一次）
 - `更新物品` 指令可随时手动更新，与自动更新互斥（不会并发清空数据）
 - 非连续子串模糊搜索，可信度阈值可配置（默认 ≥50%），最多展示 6 个结果
 - 模糊多结果直接展示全部物品的最高收单 / 最低卖单
@@ -51,7 +51,7 @@ EVE Online 三服（宁静 / 晨曦 / 曙光）市场查询插件，基于 AstrB
 - `fuzzy_pattern`：匹配模式（`contains` 包含 / `starts_with` 开头 / `ends_with` 结尾），默认 `contains`
 - `min_confidence`：模糊搜索可信度阈值（%），默认 50
 - `maintenance_monitor_enabled`：每日维护监控开关，默认开启
-- `maintenance_notify_groups`：开服推送群号列表（aiocqhttp 平台），**留空则不启用监控推送**
+- `maintenance_notify_groups`：开服推送会话列表，填写 AstrBot SID（如 `aiocqhttp:GroupMessage:123456789`），**留空则不启用监控推送**；直接填 QQ 群号也可，会自动补 aiocqhttp 群消息前缀
 - `maintenance_check_start` / `maintenance_check_end`：监控窗口（HH:MM），默认 `11:01` – `15:00`
 - `maintenance_check_interval`：检查间隔（分钟），默认 1
 
