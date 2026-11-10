@@ -48,8 +48,8 @@
     },
     "maintenance_notify_groups": {
         "type": "list",
-        "description": "开服推送群号列表",
-        "hint": "填写 QQ 群号，如 [\"123456789\"]；留空则不启用监控推送（aiocqhttp 平台）",
+        "description": "开服推送会话列表（AstrBot SID）",
+        "hint": "填写 AstrBot 会话 ID（SID），如 [\"aiocqhttp:GroupMessage:123456789\"]；也兼容直接填 QQ 群号（自动补 aiocqhttp:GroupMessage: 前缀）；留空则不启用监控推送",
         "default": [],
         "items": {
             "type": "string"
