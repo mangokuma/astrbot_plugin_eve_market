@@ -89,18 +89,20 @@ class ImageManager:
         return await self.download_image(url, save_path)
 
     async def update_all_safemaps(self) -> Dict[str, bool]:
-        """更新所有安全地图"""
-        results = {}
-        for server in ["serenity", "infinity"]:
-            results[server] = await self.update_safemap(server)
-        return results
+        """更新所有安全地图（多服并发下载）"""
+        servers = list(self._safemap_paths.keys())
+        results = await asyncio.gather(
+            *[self.update_safemap(s) for s in servers]
+        )
+        return dict(zip(servers, results))
 
     async def update_all_influences(self) -> Dict[str, bool]:
-        """更新所有势力图"""
-        results = {}
-        for server in ["serenity", "infinity"]:
-            results[server] = await self.update_influence(server)
-        return results
+        """更新所有势力图（多服并发下载）"""
+        servers = list(self._influence_paths.keys())
+        results = await asyncio.gather(
+            *[self.update_influence(s) for s in servers]
+        )
+        return dict(zip(servers, results))
 
     def get_safemap_path(self, server: str) -> Optional[str]:
         """获取安全地图本地路径
