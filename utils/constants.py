@@ -38,6 +38,23 @@ SERVER_NAMES = {
 
 SERVER_KEYS = ["tranquility", "serenity", "infinity"]
 
+# 指令参数中的服务器别名 → 标准 key（nj/cx/sg 与中文名、英文 key 均可）
+SERVER_ALIASES = {
+    "tranquility": "tranquility",
+    "宁静": "tranquility",
+    "宁": "tranquility",
+    "tq": "tranquility",
+    "nj": "tranquility",
+    "serenity": "serenity",
+    "晨曦": "serenity",
+    "晨": "serenity",
+    "cx": "serenity",
+    "infinity": "infinity",
+    "曙光": "infinity",
+    "曙": "infinity",
+    "sg": "infinity",
+}
+
 # ============================================
 # 物品数据下载
 # ============================================
