@@ -200,6 +200,7 @@ class EVEMarketPlugin(Star):
                 )
 
         # 后台任务
+        self._init_download_task = None
         self._auto_update_task = None
         self._safemap_task = None
         self._influence_task = None
@@ -234,27 +235,18 @@ class EVEMarketPlugin(Star):
         return _push
 
     async def initialize(self):
-        """插件初始化（AstrBot 调用）"""
-        # 首次启动时检查并更新物品数据
-        item_count = self.item_manager.get_item_count()
-        if item_count == 0:
-            logger.info("[EVE Market] 首次启动，正在下载物品数据...")
-            success, msg = await self.item_manager.update_items(trigger="init")
-            logger.info(f"[EVE Market] {msg}")
-        else:
-            last_update = self.item_manager.get_last_update_time()
-            logger.info(f"[EVE Market] 物品数据已存在，共 {item_count} 条，上次更新：{last_update}")
+        """插件初始化（AstrBot 调用）
+
+        网络下载（首次物品数据、安全地图、势力图）全部放入后台任务并发执行，
+        不阻塞插件就绪；下载完成前相关指令会提示数据未就绪
+        """
+        # 后台并发下载：不阻塞插件启动
+        self._init_download_task = asyncio.create_task(self._init_downloads())
 
         # 启动物品数据自动更新（每天固定时刻）
         self._auto_update_task = asyncio.create_task(
             self.item_manager.auto_update_scheduler()
         )
-
-        # 首次启动时下载安全地图和势力图
-        logger.info("[EVE Market] 正在下载安全地图...")
-        await self.image_manager.update_all_safemaps()
-        logger.info("[EVE Market] 正在下载势力图...")
-        await self.image_manager.update_all_influences()
 
         # 启动安全地图定时更新（每天 00:31）
         self._safemap_task = asyncio.create_task(
@@ -270,11 +262,42 @@ class EVEMarketPlugin(Star):
         if self.server_monitor:
             self._monitor_task = asyncio.create_task(self.server_monitor.run())
 
-        logger.info("[EVE Market] 所有后台任务已启动")
+        logger.info("[EVE Market] 插件初始化完成，物品数据与图片在后台下载中")
+
+    async def _init_downloads(self):
+        """后台并发下载：首次物品数据 + 安全地图 + 势力图
+
+        单项失败不影响其他下载；全部结果记录日志
+        """
+        tasks = []
+
+        async def _first_update_items():
+            logger.info("[EVE Market] 首次启动，正在后台下载物品数据...")
+            success, msg = await self.item_manager.update_items(trigger="init")
+            logger.info(f"[EVE Market] {msg}")
+
+        if self.item_manager.get_item_count() == 0:
+            tasks.append(_first_update_items())
+        else:
+            last_update = self.item_manager.get_last_update_time()
+            logger.info(
+                f"[EVE Market] 物品数据已存在，共 {self.item_manager.get_item_count()} 条，"
+                f"上次更新：{last_update}"
+            )
+
+        tasks.append(self.image_manager.update_all_safemaps())
+        tasks.append(self.image_manager.update_all_influences())
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(f"[EVE Market] 后台下载任务异常：{result}")
+        logger.info("[EVE Market] 后台下载任务全部结束")
 
     async def terminate(self):
         """插件卸载（AstrBot 调用）"""
         tasks = [
+            ("init_download", self._init_download_task),
             ("auto_update", self._auto_update_task),
             ("safemap", self._safemap_task),
             ("influence", self._influence_task),
