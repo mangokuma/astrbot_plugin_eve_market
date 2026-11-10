@@ -16,7 +16,7 @@ from ..utils.constants import (
     DEFAULT_MAINTENANCE_CHECK_INTERVAL,
 )
 
-# 推送回调：接收一条文本消息，负责发送到群聊等平台
+# 推送回调：接收一条文本消息，负责发送到指定会话（SID）
 PushCallback = Callable[[str], Awaitable[None]]
 
 
@@ -27,20 +27,30 @@ class ServerMonitor:
     - 服务器在窗口内出现过离线（进入维护），之后恢复在线时推送开服消息
     - 每服每天只推送一次；到窗口结束仍未恢复则静默结束
     - 服务器一直在线（维护延期/取消）时不推送
+    - 每个服务器有独立的推送回调与开关，可运行时单独启停
     """
 
     def __init__(
         self,
         esi_client: ESIClient,
-        push_callback: PushCallback,
+        push_callbacks: Optional[Dict[str, PushCallback]] = None,
+        push_enabled: Optional[Dict[str, bool]] = None,
         server_keys: Optional[List[str]] = None,
         check_start: str = DEFAULT_MAINTENANCE_CHECK_START,
         check_end: str = DEFAULT_MAINTENANCE_CHECK_END,
         interval_minutes: int = DEFAULT_MAINTENANCE_CHECK_INTERVAL,
     ):
         self.esi_client = esi_client
-        self.push_callback = push_callback
-        self.server_keys = list(server_keys) if server_keys else list(MAINTENANCE_MONITOR_SERVERS)
+        # 每服独立的推送回调（server_key → callback）
+        self.push_callbacks: Dict[str, PushCallback] = dict(push_callbacks or {})
+        # 每服推送开关（server_key → bool），缺省视为关闭
+        self.push_enabled: Dict[str, bool] = dict(push_enabled or {})
+        if server_keys:
+            self.server_keys = list(server_keys)
+        elif self.push_callbacks:
+            self.server_keys = list(self.push_callbacks.keys())
+        else:
+            self.server_keys = list(MAINTENANCE_MONITOR_SERVERS)
         self.check_start = check_start
         self.check_end = check_end
         try:
@@ -105,6 +115,21 @@ class ServerMonitor:
 
     # ==================== 检查与推送 ====================
 
+    def is_push_enabled(self, key: str) -> bool:
+        """该服务器的开服推送是否开启（无回调或开关关闭均视为关闭）"""
+        return bool(self.push_enabled.get(key, False)) and key in self.push_callbacks
+
+    def set_push_enabled(self, key: str, enabled: bool) -> bool:
+        """运行时单独启停某服的开服推送
+
+        Returns:
+            该服务器是否在被监控列表中
+        """
+        if key not in self.server_keys:
+            return False
+        self.push_enabled[key] = bool(enabled)
+        return True
+
     async def _check_once(self):
         """检查一轮所有被监控服务器"""
         self._last_check_time = datetime.now()
@@ -131,7 +156,13 @@ class ServerMonitor:
             await self._notify(key, status)
 
     async def _notify(self, key: str, status: ServerStatus):
-        """推送开服消息（每服每天至多一次）"""
+        """推送开服消息（每服每天至多一次）
+
+        推送开关关闭或无回调时不推送，也不标记已通知——
+        这样窗口内重新开启推送后，恢复事件仍能补推
+        """
+        if not self.is_push_enabled(key):
+            return
         self._notified[key] = True
         name = SERVER_NAMES.get(key, key)
         lines = [
@@ -141,7 +172,7 @@ class ServerMonitor:
         if status.server_version:
             lines.append(f"服务器版本：{status.server_version}")
         try:
-            await self.push_callback("\n".join(lines))
+            await self.push_callbacks[key]("\n".join(lines))
             self._push_log.append(f"{datetime.now().strftime('%H:%M')} {name}")
             logger.info(f"[EVE Market] 已推送{name}服开服消息")
         except Exception as e:
@@ -186,7 +217,8 @@ class ServerMonitor:
                 progress = "维护中，等待恢复"
             else:
                 progress = "未进入维护"
-            lines.append(f"{name}：{state}｜{progress}")
+            push_state = "开" if self.is_push_enabled(key) else "关"
+            lines.append(f"{name}：{state}｜{progress}｜推送：{push_state}")
 
         if self._push_log:
             lines.append("今日推送：" + "、".join(self._push_log))
