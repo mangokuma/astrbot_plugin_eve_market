@@ -79,7 +79,9 @@ class EVEMarketPlugin(Star):
         if isinstance(notify_groups, (str, int)):
             notify_groups = [notify_groups]
         self.maintenance_notify_groups = [
-            str(g).strip() for g in notify_groups if str(g).strip()
+            self._normalize_sid(str(g).strip())
+            for g in notify_groups
+            if str(g).strip()
         ]
         self.maintenance_check_start = self.config.get(
             "maintenance_check_start", DEFAULT_MAINTENANCE_CHECK_START
@@ -130,7 +132,7 @@ class EVEMarketPlugin(Star):
         self.update_cmd = UpdateCommand(self.item_manager)
         self.map_cmd = MapCommand(self.image_manager)
 
-        # 每日维护监控：恢复在线后推送开服消息到指定群聊
+        # 每日维护监控：恢复在线后推送开服消息到指定会话
         self.server_monitor = None
         if self.maintenance_monitor_enabled:
             if self.maintenance_notify_groups:
@@ -156,17 +158,28 @@ class EVEMarketPlugin(Star):
 
         logger.info("[EVE Market] 插件初始化完成")
 
+    @staticmethod
+    def _normalize_sid(value: str) -> str:
+        """把推送目标统一为 AstrBot SID（会话 ID）
+
+        完整 SID（如 aiocqhttp:GroupMessage:123456789）原样使用；
+        纯数字群号自动补 aiocqhttp:GroupMessage: 前缀（兼容旧配置）
+        """
+        if ":" in value:
+            return value
+        return f"aiocqhttp:GroupMessage:{value}"
+
     def _make_push_callback(self):
-        """构造开服推送回调：向所有配置的群聊发送消息"""
+        """构造开服推送回调：向所有配置的会话（SID）发送消息"""
         async def _push(msg: str):
-            for gid in self.maintenance_notify_groups:
+            for sid in self.maintenance_notify_groups:
                 try:
                     await self.context.send_message(
-                        f"aiocqhttp:GroupMessage:{gid}",
+                        sid,
                         [Comp.Plain(msg)],
                     )
                 except Exception as e:
-                    logger.error(f"[EVE Market] 推送开服消息到群 {gid} 失败：{e}")
+                    logger.error(f"[EVE Market] 推送开服消息到 {sid} 失败：{e}")
         return _push
 
     async def initialize(self):
