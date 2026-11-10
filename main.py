@@ -28,6 +28,9 @@ from .utils.constants import (
     DEFAULT_MAINTENANCE_CHECK_START,
     DEFAULT_MAINTENANCE_CHECK_END,
     DEFAULT_MAINTENANCE_CHECK_INTERVAL,
+    SERVER_NAMES,
+    SERVER_KEYS,
+    SERVER_ALIASES,
 )
 
 
@@ -40,7 +43,11 @@ class EVEMarketPlugin(Star):
         # 读取插件配置
         # 优先使用 AstrBot 插件配置管理（_conf_schema.json，可在 WebUI 可视化配置）；
         # 兼容旧版：未提供 _conf_schema.json 时回退到全局配置的 plugins.eve_market 段
+        self._raw_config = None
         if config is not None:
+            self._raw_config = (
+                config if hasattr(config, "save_config_async") else None
+            )
             self.config = dict(config)
         else:
             self.config = {}
@@ -71,18 +78,51 @@ class EVEMarketPlugin(Star):
             DEFAULT_UPDATE_RETRY_MINUTES
         )
 
-        # 配置项：每日维护监控（晨曦/曙光 11:00 例行维护，恢复后推送开服消息）
+        # 配置项：每日维护监控（晨曦/曙光每天 11:00 例行维护，恢复后推送开服消息）
         self.maintenance_monitor_enabled = bool(
             self.config.get("maintenance_monitor_enabled", True)
         )
-        notify_groups = self.config.get("maintenance_notify_groups", [])
-        if isinstance(notify_groups, (str, int)):
-            notify_groups = [notify_groups]
-        self.maintenance_notify_groups = [
+        # 每个服务器独立的推送配置：{"enabled": bool, "sids": [...]}
+        # 旧版 maintenance_notify_groups 自动迁移到晨曦/曙光
+        legacy_groups = self.config.get("maintenance_notify_groups") or []
+        if isinstance(legacy_groups, (str, int)):
+            legacy_groups = [legacy_groups]
+        legacy_sids = [
             self._normalize_sid(str(g).strip())
-            for g in notify_groups
+            for g in legacy_groups
             if str(g).strip()
         ]
+        self.push_configs = {}
+        migrated_legacy = False
+        for key in SERVER_KEYS:
+            # 宁静服无每日例行维护，默认不推送；晨曦/曙光默认开启
+            enabled = bool(self.config.get(f"{key}_push_enabled", key != "tranquility"))
+            sids_raw = self.config.get(f"{key}_push_sids", [])
+            if isinstance(sids_raw, (str, int)):
+                sids_raw = [sids_raw]
+            sids = [
+                self._normalize_sid(str(s).strip())
+                for s in sids_raw
+                if str(s).strip()
+            ]
+            if not sids and legacy_sids and key in ("serenity", "infinity"):
+                # 旧版配置迁移：群号列表应用到晨曦/曙光
+                sids = list(legacy_sids)
+                enabled = True
+                migrated_legacy = True
+            self.push_configs[key] = {"enabled": enabled, "sids": sids}
+        if migrated_legacy and self._raw_config is not None:
+            try:
+                for key in ("serenity", "infinity"):
+                    self._raw_config[f"{key}_push_sids"] = list(
+                        self.push_configs[key]["sids"]
+                    )
+                    self._raw_config[f"{key}_push_enabled"] = True
+                self._raw_config["maintenance_notify_groups"] = []
+                self._raw_config.save_config()
+                logger.info("[EVE Market] 旧版 maintenance_notify_groups 已迁移到分服推送配置")
+            except Exception as e:
+                logger.warning(f"[EVE Market] 旧版推送配置迁移保存失败：{e}")
         self.maintenance_check_start = self.config.get(
             "maintenance_check_start", DEFAULT_MAINTENANCE_CHECK_START
         )
@@ -132,22 +172,31 @@ class EVEMarketPlugin(Star):
         self.update_cmd = UpdateCommand(self.item_manager)
         self.map_cmd = MapCommand(self.image_manager)
 
-        # 每日维护监控：恢复在线后推送开服消息到指定会话
+        # 每日维护监控：恢复在线后按服推送开服消息到各自配置的会话
         self.server_monitor = None
         if self.maintenance_monitor_enabled:
-            if self.maintenance_notify_groups:
+            monitored = [
+                k for k, cfg in self.push_configs.items() if cfg["sids"]
+            ]
+            if monitored:
                 self.server_monitor = ServerMonitor(
                     esi_client=self.server_status_cmd.esi_client,
-                    push_callback=self._make_push_callback(),
-                    server_keys=list(MAINTENANCE_MONITOR_SERVERS),
+                    push_callbacks={
+                        k: self._make_push_callback(self.push_configs[k]["sids"])
+                        for k in monitored
+                    },
+                    push_enabled={
+                        k: self.push_configs[k]["enabled"] for k in monitored
+                    },
+                    server_keys=monitored,
                     check_start=self.maintenance_check_start,
                     check_end=self.maintenance_check_end,
                     interval_minutes=self.maintenance_check_interval,
                 )
             else:
                 logger.warning(
-                    "[EVE Market] 维护监控已启用但未配置 maintenance_notify_groups，"
-                    "开服消息将无法推送"
+                    "[EVE Market] 维护监控已启用但未配置任何推送目标"
+                    "（<服务器>_push_sids 均为空），开服消息将无法推送"
                 )
 
         # 后台任务
@@ -169,10 +218,12 @@ class EVEMarketPlugin(Star):
             return value
         return f"aiocqhttp:GroupMessage:{value}"
 
-    def _make_push_callback(self):
-        """构造开服推送回调：向所有配置的会话（SID）发送消息"""
+    def _make_push_callback(self, sids):
+        """构造某服的开服推送回调：向该服配置的所有会话（SID）发送消息"""
+        targets = list(sids)
+
         async def _push(msg: str):
-            for sid in self.maintenance_notify_groups:
+            for sid in targets:
                 try:
                     await self.context.send_message(
                         sid,
@@ -286,6 +337,85 @@ class EVEMarketPlugin(Star):
                 return True, ""
         return False, "❌ 仅群主/管理员可使用此指令"
 
+    @staticmethod
+    def _resolve_server_key(name: str):
+        """把指令参数（nj/宁静/serenity 等）解析为服务器 key，失败返回 None"""
+        return SERVER_ALIASES.get(str(name).strip().lower())
+
+    def _resolve_push_targets(self, args: str):
+        """解析推送开关指令的目标服务器列表
+
+        无参数 → 所有已配置推送目标的服；参数可空格分隔多个服
+        Returns:
+            (keys, error)：error 非空表示解析失败
+        """
+        args = (args or "").strip()
+        if not args:
+            return [
+                k for k, cfg in self.push_configs.items() if cfg["sids"]
+            ], ""
+        keys = []
+        for token in args.split():
+            key = self._resolve_server_key(token)
+            if key is None:
+                return None, f"❌ 未识别的服务器「{token}」（可用：nj/宁静、cx/晨曦、sg/曙光）"
+            if key not in keys:
+                keys.append(key)
+        return keys, ""
+
+    async def _toggle_push(self, event: AstrMessageEvent, cmd: str, enable: bool) -> str:
+        """开启/关闭指定服务器（或全部）的开服推送（仅群主/管理员）"""
+        allowed, deny_msg = await self._check_admin(event)
+        if not allowed:
+            return deny_msg
+
+        args = self._extract_args(event, cmd)
+        keys, err = self._resolve_push_targets(args)
+        if err:
+            return err
+        if not keys:
+            return (
+                "⚠️ 尚未配置任何推送目标，请先在 WebUI 设置中"
+                "填写 <服务器>_push_sids（如 serenity_push_sids）"
+            )
+
+        verb = "开启" if enable else "关闭"
+        lines = []
+        if not self.server_monitor:
+            lines.append(
+                "⚠️ 维护监控总开关当前未启用（maintenance_monitor_enabled），"
+                "推送不会生效"
+            )
+        changed = False
+        for key in keys:
+            name = SERVER_NAMES[key]
+            cfg = self.push_configs[key]
+            cfg["enabled"] = enable
+            if self.server_monitor:
+                self.server_monitor.set_push_enabled(key, enable)
+            if self._raw_config is not None:
+                self._raw_config[f"{key}_push_enabled"] = enable
+                changed = True
+            if enable and not cfg["sids"]:
+                lines.append(
+                    f"⚠️ {name}：已开启，但未配置推送目标（{key}_push_sids 为空），"
+                    f"不会实际推送"
+                )
+            else:
+                icon = "✅" if enable else "⛔"
+                lines.append(f"{icon} {name}服开服推送已{verb}")
+
+        if changed:
+            try:
+                await self._raw_config.save_config_async()
+            except Exception as e:
+                logger.error(f"[EVE Market] 推送开关保存到配置文件失败：{e}")
+                lines.append("⚠️ 运行状态已变更，但写入配置文件失败，重载插件后可能还原")
+        elif self._raw_config is None:
+            lines.append("⚠️ 当前为旧版配置模式，变更仅在本次运行生效")
+
+        return "\n".join(lines)
+
     # ==================== 指令注册 ====================
 
     @filter.command("ss")
@@ -360,10 +490,27 @@ class EVEMarketPlugin(Star):
         """查询每日维护监控状态"""
         if not self.server_monitor:
             yield event.plain_result(
-                "⚠️ 维护监控未启用（已禁用或未配置 maintenance_notify_groups）"
+                "⚠️ 维护监控未启用（总开关已关闭或未配置任何推送目标 "
+                "<服务器>_push_sids）"
             )
             return
         yield event.plain_result(self.server_monitor.get_status_text())
+
+    @filter.command("开启推送")
+    async def cmd_enable_push(self, event: AstrMessageEvent):
+        """开启指定服务器（或全部）的开服推送，仅群主/管理员
+
+        用法：开启推送 [服务器]，服务器可填 nj/宁静、cx/晨曦、sg/曙光，
+        空格分隔多个；不带参数表示所有已配置推送目标的服
+        """
+        result = await self._toggle_push(event, "开启推送", True)
+        yield event.plain_result(result)
+
+    @filter.command("关闭推送")
+    async def cmd_disable_push(self, event: AstrMessageEvent):
+        """关闭指定服务器（或全部）的开服推送，仅群主/管理员"""
+        result = await self._toggle_push(event, "关闭推送", False)
+        yield event.plain_result(result)
 
     # ==================== 地图指令 ====================
 
