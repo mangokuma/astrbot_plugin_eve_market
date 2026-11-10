@@ -43,13 +43,58 @@
     "maintenance_monitor_enabled": {
         "type": "bool",
         "description": "启用每日维护监控",
-        "hint": "晨曦/曙光每天 11:00 例行维护，恢复后推送开服消息",
+        "hint": "晨曦/曙光每天 11:00 例行维护，恢复后推送开服消息；总开关关闭时所有推送停止",
         "default": true
+    },
+    "tranquility_push_enabled": {
+        "type": "bool",
+        "description": "宁静服开服推送开关",
+        "hint": "也可用「开启推送 nj」/「关闭推送 nj」指令随时切换",
+        "default": false
+    },
+    "tranquility_push_sids": {
+        "type": "list",
+        "description": "宁静服推送目标会话列表（AstrBot SID）",
+        "hint": "填写 SID，如 [\"aiocqhttp:GroupMessage:123456789\"]；纯群号自动补前缀；留空则该服不监控不推送",
+        "default": [],
+        "items": {
+            "type": "string"
+        }
+    },
+    "serenity_push_enabled": {
+        "type": "bool",
+        "description": "晨曦服开服推送开关",
+        "hint": "也可用「开启推送 cx」/「关闭推送 cx」指令随时切换",
+        "default": true
+    },
+    "serenity_push_sids": {
+        "type": "list",
+        "description": "晨曦服推送目标会话列表（AstrBot SID）",
+        "hint": "填写 SID，如 [\"aiocqhttp:GroupMessage:123456789\"]；纯群号自动补前缀；留空则该服不监控不推送",
+        "default": [],
+        "items": {
+            "type": "string"
+        }
+    },
+    "infinity_push_enabled": {
+        "type": "bool",
+        "description": "曙光服开服推送开关",
+        "hint": "也可用「开启推送 sg」/「关闭推送 sg」指令随时切换",
+        "default": true
+    },
+    "infinity_push_sids": {
+        "type": "list",
+        "description": "曙光服推送目标会话列表（AstrBot SID）",
+        "hint": "填写 SID，如 [\"aiocqhttp:GroupMessage:123456789\"]；纯群号自动补前缀；留空则该服不监控不推送",
+        "default": [],
+        "items": {
+            "type": "string"
+        }
     },
     "maintenance_notify_groups": {
         "type": "list",
-        "description": "开服推送会话列表（AstrBot SID）",
-        "hint": "填写 AstrBot 会话 ID（SID），如 [\"aiocqhttp:GroupMessage:123456789\"]；也兼容直接填 QQ 群号（自动补 aiocqhttp:GroupMessage: 前缀）；留空则不启用监控推送",
+        "description": "（旧版）开服推送会话列表",
+        "hint": "旧版配置项，升级后自动迁移到 serenity_push_sids / infinity_push_sids 并清空此项，无需填写",
         "default": [],
         "items": {
             "type": "string"
